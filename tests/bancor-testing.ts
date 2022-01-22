@@ -21,11 +21,13 @@ describe("bancor-testing", () => {
     targetTokenSupply: number;
     reserveBalance: number;
     reserveRatio: number;
+    preMine: number;
   }
   let market: Market = {
-    targetTokenSupply: 100000 * TARGET_DECIMAL_MODIFIER,
-    reserveBalance: 1 * TARGET_DECIMAL_MODIFIER,
+    targetTokenSupply: 11, //100m assuming max supply is 1b
+    reserveBalance: 0.5, // * TARGET_DECIMAL_MODIFIER,
     reserveRatio: 0.5,
+    preMine: 10,
   };
   interface User {
     reserveTokenBalance: number;
@@ -38,21 +40,25 @@ describe("bancor-testing", () => {
 
   it("testing", async () => {
     /*
+    potential pitfalls
+    - slippage
+    - secondary liquidity
+      if u don't have good liquidity then it will just trade at the redemption price, which i guess is fine
+
+
+
+    things to note
+
+
+
 
     reserve ratio maintains a constant between the token's market cap and its treasury reserves
     if you assume that the funds going into the treasury will match 1:1 with the tokens coming out of the reserves
     then this can be modeled like a normal bonding curve
 
-    //tokens received is tokens received by the curve
 
-
-    //
-    PurchaseReturn = ContinuousTokenSupply * ((1 + ReserveTokensReceived / ReserveTokenBalance) ^ (ReserveRatio) - 1)
-    buyAmt = tokenSupply * ((1 + amtPaid / collateral)^CW — 1)
-
-    //
-    SaleReturn = ReserveTokenBalance * (1 - (1 - ContinuousTokensReceived / ContinuousTokenSupply) ^ (1 / (ReserveRatio)))
     */
+
     printMarketStatus(market);
 
     // buy(1000 * TARGET_DECIMAL_MODIFIER, market, user);
@@ -60,12 +66,28 @@ describe("bancor-testing", () => {
     // buy(30 * TARGET_DECIMAL_MODIFIER, market, user);
     // sell(30 * TARGET_DECIMAL_MODIFIER, market, user);
     // sell(3000 * TARGET_DECIMAL_MODIFIER, market, user);
-    buy(100000 * TARGET_DECIMAL_MODIFIER, market, user);
-    buy(100000 * TARGET_DECIMAL_MODIFIER, market, user);
-    buy(100000 * TARGET_DECIMAL_MODIFIER, market, user);
-    buy(100000 * TARGET_DECIMAL_MODIFIER, market, user);
-    buy(100000 * TARGET_DECIMAL_MODIFIER, market, user);
-    buy(100000 * TARGET_DECIMAL_MODIFIER, market, user);
+    //ok so i think i'm just gonna write up something and i'll do the implementation later
+
+    //so it's assuming some supply exists but not that u are doing a premine
+    //one thing u could do is let the
+
+    //so u would probably just rip the premine like so...
+
+    //on sell
+
+    buy(99, market, user);
+    sell(99, market, user);
+    sell(1, market, user);
+    sell(1, market, user);
+
+    //fillReserve(market, 500);
+    //printMarketStatus(market);
+    // buy(100000000 * TARGET_DECIMAL_MODIFIER, market, user);
+    // buy(100000000 * TARGET_DECIMAL_MODIFIER, market, user);
+    // buy(100000000 * TARGET_DECIMAL_MODIFIER, market, user);
+
+    // buy(100000 * TARGET_DECIMAL_MODIFIER, market, user);
+    // buy(100000 * TARGET_DECIMAL_MODIFIER, market, user);
 
     //sell(100000, market, user);
 
@@ -87,11 +109,19 @@ describe("bancor-testing", () => {
     */
   });
 
+  //99,000,099 -- 99 million moonbase required to exit the amm in this case
+  //99,099 req'd to exit amm (if base was sol that would be about 13m)
+  //removed 3 zeroes from modifier
   const buy = (targets: number, market: Market, user: User) => {
     console.log("");
     console.log("BUYING");
     console.log("targets received:", targets);
     let reserveChange = reserveValueOnBuy(targets, market);
+    console.log("reserve value on buy: ", reserveChange);
+    console.log(
+      "decimal adjusted reserve value",
+      reserveChange / TARGET_DECIMAL_MODIFIER
+    );
     market.reserveBalance += reserveChange;
     market.targetTokenSupply += targets;
     user.reserveTokenBalance -= reserveChange;
@@ -101,10 +131,14 @@ describe("bancor-testing", () => {
   };
 
   const sell = (targets: number, market: Market, user: User) => {
-    console.log("");
+    if (market.targetTokenSupply - targets < market.preMine) {
+      //selling into the premine portion
+      targets = market.targetTokenSupply - market.preMine;
+    }
     console.log("SELLING");
     console.log("targets sold:", targets);
     let reserveChange = reserveValueOnSell(targets, market);
+    console.log("reserve value on sell: ", reserveChange);
     market.reserveBalance -= reserveChange;
     market.targetTokenSupply -= targets;
     user.reserveTokenBalance += reserveChange;
@@ -120,6 +154,11 @@ describe("bancor-testing", () => {
     market.reserveBalance += amount;
     let newMarginalPrice = marginalPrice(market);
     console.log("marginal price change: ", newMarginalPrice - oldMarginalPrice);
+    console.log(
+      "% price change",
+      ((newMarginalPrice - oldMarginalPrice) / oldMarginalPrice) * 100,
+      "%"
+    );
   };
   const printMarketStatus = (market: Market) => {
     console.log("MARKET STATUS ------");
@@ -136,25 +175,25 @@ describe("bancor-testing", () => {
   const marginalPrice = (market: Market) => {
     return (
       (market.reserveBalance + targetModifier) /
-      (market.targetTokenSupply * market.reserveRatio)
+      ((market.targetTokenSupply - market.preMine) * market.reserveRatio)
     );
   };
 
   //reserveValue = collateral * ((1 + targets / targetSupply)^(1/reserveRatio) — 1)
   const reserveValueOnBuy = (targets: number, market: Market) => {
-    let base = 1 + targets / market.targetTokenSupply;
+    let curveSupply = market.targetTokenSupply - market.preMine;
+    let base = 1 + targets / curveSupply;
     let ex = Math.pow(base, 1 / market.reserveRatio) - 1;
     let whole = (market.reserveBalance + targetModifier) * ex;
-    console.log("reserve value on buy: ", whole);
     return whole;
   };
-  const targetModifier = 1000000000;
+  const targetModifier = 0; //10000 * TARGET_DECIMAL_MODIFIER; //modifier is fine it's the manipulated treasury that's fucked
   //reserveValue = collateral * (1 - (1 - targets / targetSupply)^ (1/reserveRatio)))
   const reserveValueOnSell = (targets: number, market: Market) => {
-    let base = 1 - targets / market.targetTokenSupply;
+    let curveSupply = market.targetTokenSupply - market.preMine;
+    let base = 1 - targets / curveSupply;
     let ex = 1 - Math.pow(base, 1 / market.reserveRatio);
     let whole = (market.reserveBalance + targetModifier) * ex;
-    console.log("reserve value on sell: ", whole);
     return whole;
   };
 
@@ -200,6 +239,39 @@ describe("bancor-testing", () => {
 });
 
 /*
+
+  bancor-testing
+MARKET STATUS ------
+{
+  targetTokenSupply: 11,
+  reserveBalance: 0.5,
+  reserveRatio: 0.5,
+  marginalPrice: 1
+}
+
+BUYING
+targets received: 99
+reserve value on buy:  4999.5
+decimal adjusted reserve value 0.0049995
+price per token:  50.5 reserve
+MARKET STATUS ------
+{
+  targetTokenSupply: 110,
+  reserveBalance: 5000,
+  reserveRatio: 0.5,
+  marginalPrice: 100
+}
+
+FILLING RESERVE
+marginal price change:  10
+% price change 10 %
+
+
+
+
+
+
+
 
   bancor-testing
 MARKET STATUS ------
