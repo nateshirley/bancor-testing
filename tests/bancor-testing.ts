@@ -23,15 +23,14 @@ describe("bancor-testing", () => {
     reserveRatio: number;
     preMine: number;
     initialPrice: number;
-    supportBalance: number;
   }
+  //other way to store this without funding two different balances would be to derive
   let market: Market = {
     targetTokenSupply: 1, //100m assuming max supply is 1b
-    reserveBalance: 0.5, //0.0005, // * TARGET_DECIMAL_MODIFIER,
+    reserveBalance: 10.5, //0.0005, // * TARGET_DECIMAL_MODIFIER,
     reserveRatio: 0.5,
     preMine: 0,
     initialPrice: 10,
-    supportBalance: 10,
   };
   interface User {
     reserveTokenBalance: number;
@@ -46,21 +45,28 @@ describe("bancor-testing", () => {
     reserve ratio maintains a constant between the token's market cap and its treasury reserves
     if you assume that the funds going into the treasury will match 1:1 with the tokens coming out of the reserves
     then this can be modeled like a normal bonding curve
+
+    if u float the market with an initial price, u no longer move the price as % of reserve, because 
     */
 
     buy(99, market, user);
-    //fillReserve(market, 10);
+    // fillReserve(market, 600); //9.231
+    // printMarketStatus(market);
+    //;
+    /*
+    it becomes y = mx^n + (initial price * x)
+    */
 
-    //buy(10, market, user);
     buy(100, market, user);
     buy(100, market, user);
-    //buy(0.00001, market, user);
+    buy(100, market, user);
+    // fillReserve(market, 8400); //9.767441860465116
+    // printMarketStatus(market);
 
-    //so this makes it more steep the more money u add into it?
-    //yes bc it's adjusting the slope to make it more steep
-    sell(100, market, user);
-    sell(100, market, user);
-    // sell(10, market, user);
+    // buy(100, market, user);
+
+    // sell(100, market, user);
+    // sell(100, market, user);
 
     //buy(0.0001, market, user);
     //its bc i have decimals with num so buying 1 is really like buying 1000
@@ -77,18 +83,12 @@ u can just build it with starting price
     console.log("BUYING");
     console.log("targets received:", targets);
     let reserveChange = reserveValueOnBuy(targets, market);
-    let supportChange = supportValue(targets, market);
     console.log("total cost to user: ", reserveChange);
     market.reserveBalance += reserveChange;
     market.targetTokenSupply += targets;
-    market.supportBalance += supportChange;
-    user.reserveTokenBalance -= reserveChange + supportChange;
+    user.reserveTokenBalance -= reserveChange;
     user.targetTokenBalance += targets;
-    console.log(
-      "price per token: ",
-      (reserveChange + supportChange) / targets,
-      "reserve"
-    );
+    console.log("price per token: ", reserveChange / targets, "reserve");
     printMarketStatus(market);
   };
 
@@ -96,15 +96,17 @@ u can just build it with starting price
     return targets * market.initialPrice;
   };
 
-  //im trying to push the reserve value down by a constant
-  //reserveValue = collateral * ((1 + targets / targetSupply)^(1/reserveRatio) — 1)
   const reserveValueOnBuy = (targets: number, market: Market) => {
     let curveSupply = market.targetTokenSupply - market.preMine;
+    console.log("curve supp", curveSupply);
+    let supportBalance = market.initialPrice * curveSupply;
+    console.log("support balance", supportBalance);
+    let curveBalance = market.reserveBalance - supportBalance;
     let base = 1 + targets / curveSupply;
     let ex = Math.pow(base, 1 / market.reserveRatio) - 1;
-    let whole = market.reserveBalance * ex;
+    let whole = curveBalance * ex;
     console.log("whole", whole);
-    return whole;
+    return whole + supportValue(targets, market);
   };
 
   const sell = (targets: number, market: Market, user: User) => {
@@ -116,18 +118,12 @@ u can just build it with starting price
     console.log("SELLING");
     console.log("targets sold:", targets);
     let reserveChange = reserveValueOnSell(targets, market);
-    let supportChange = supportValue(targets, market);
     console.log("reserve value on sell: ", reserveChange);
     market.reserveBalance -= reserveChange;
     market.targetTokenSupply -= targets;
-    market.supportBalance -= supportChange;
-    user.reserveTokenBalance += reserveChange + supportChange;
+    user.reserveTokenBalance += reserveChange;
     user.targetTokenBalance -= targets;
-    console.log(
-      "price per token: ",
-      (reserveChange + supportChange) / targets,
-      "reserve"
-    );
+    console.log("price per token: ", reserveChange / targets, "reserve");
     printMarketStatus(market);
   };
 
@@ -135,11 +131,13 @@ u can just build it with starting price
   //reserveValue = collateral * (1 - (1 - targets / targetSupply)^ (1/reserveRatio)))
   const reserveValueOnSell = (targets: number, market: Market) => {
     let curveSupply = market.targetTokenSupply - market.preMine;
+    let supportBalance = market.initialPrice * curveSupply;
+    let curveBalance = market.reserveBalance - supportBalance;
     let base = 1 - targets / curveSupply;
     let ex = 1 - Math.pow(base, 1 / market.reserveRatio);
-    let whole = market.reserveBalance * ex;
+    let whole = curveBalance * ex;
     console.log("whole", whole);
-    return whole;
+    return whole + supportValue(targets, market);
   };
 
   const fillReserve = (market: Market, amount: number) => {
