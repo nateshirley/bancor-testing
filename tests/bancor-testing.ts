@@ -22,12 +22,16 @@ describe("bancor-testing", () => {
     reserveBalance: number;
     reserveRatio: number;
     preMine: number;
+    initialPrice: number;
+    supportBalance: number;
   }
   let market: Market = {
     targetTokenSupply: 1, //100m assuming max supply is 1b
-    reserveBalance: 0.05, //0.0005, // * TARGET_DECIMAL_MODIFIER,
+    reserveBalance: 0.5, //0.0005, // * TARGET_DECIMAL_MODIFIER,
     reserveRatio: 0.5,
     preMine: 0,
+    initialPrice: 10,
+    supportBalance: 10,
   };
   interface User {
     reserveTokenBalance: number;
@@ -39,73 +43,68 @@ describe("bancor-testing", () => {
   };
   it("testing", async () => {
     /*
-
     reserve ratio maintains a constant between the token's market cap and its treasury reserves
     if you assume that the funds going into the treasury will match 1:1 with the tokens coming out of the reserves
     then this can be modeled like a normal bonding curve
-
-
     */
 
-    printMarketStatus(market);
+    buy(99, market, user);
+    //fillReserve(market, 10);
 
-    buy(9, market, user);
-    //fillReserve(market, 107);
-    buy(10, market, user);
-    // //buy(1, market, user);
-    buy(10, market, user);
-    buy(10, market, user);
-    sell(10, market, user);
-    sell(10, market, user);
+    //buy(10, market, user);
+    buy(100, market, user);
+    buy(100, market, user);
+    //buy(0.00001, market, user);
+
+    //so this makes it more steep the more money u add into it?
+    //yes bc it's adjusting the slope to make it more steep
+    sell(100, market, user);
+    sell(100, market, user);
     // sell(10, market, user);
+
+    //buy(0.0001, market, user);
+    //its bc i have decimals with num so buying 1 is really like buying 1000
   });
 
-  //99,000,099 -- 99 million moonbase required to exit the amm in this case
-  //99,099 req'd to exit amm (if base was sol that would be about 13m)
-  //removed 3 zeroes from modifier
+  /*
+open questions
+how do u start at a particular price? i think u could just add it manually
+u can just build it with starting price
+  */
+
   const buy = (targets: number, market: Market, user: User) => {
     console.log("");
     console.log("BUYING");
     console.log("targets received:", targets);
     let reserveChange = reserveValueOnBuy(targets, market);
+    let supportChange = supportValue(targets, market);
     console.log("total cost to user: ", reserveChange);
-    // console.log(
-    //   "decimal adjusted reserve value",
-    //   reserveChange / TARGET_DECIMAL_MODIFIER
-    // );
     market.reserveBalance += reserveChange;
     market.targetTokenSupply += targets;
-    user.reserveTokenBalance -= reserveChange;
+    market.supportBalance += supportChange;
+    user.reserveTokenBalance -= reserveChange + supportChange;
     user.targetTokenBalance += targets;
-    console.log("price per token: ", reserveChange / targets, "reserve");
+    console.log(
+      "price per token: ",
+      (reserveChange + supportChange) / targets,
+      "reserve"
+    );
     printMarketStatus(market);
   };
+
+  const supportValue = (targets: number, market: Market) => {
+    return targets * market.initialPrice;
+  };
+
   //im trying to push the reserve value down by a constant
   //reserveValue = collateral * ((1 + targets / targetSupply)^(1/reserveRatio) — 1)
   const reserveValueOnBuy = (targets: number, market: Market) => {
-    let modifier = 10;
     let curveSupply = market.targetTokenSupply - market.preMine;
     let base = 1 + targets / curveSupply;
     let ex = Math.pow(base, 1 / market.reserveRatio) - 1;
     let whole = market.reserveBalance * ex;
+    console.log("whole", whole);
     return whole;
-  };
-
-  //pro-rata redemption doesn't move the price at all
-  const redeem = (targets: number, market: Market, user: User) => {
-    let prorata = targets / market.targetTokenSupply;
-    console.log("");
-    console.log("REDEEMING");
-    console.log("targets redeemed:", targets);
-    console.log("pro rata", prorata);
-    let claim = prorata * market.reserveBalance;
-    console.log("claim", claim);
-    market.reserveBalance -= claim;
-    market.targetTokenSupply -= targets;
-    user.reserveTokenBalance += claim;
-    user.targetTokenBalance -= targets;
-    console.log("value per token: ", claim / targets, "reserve");
-    printMarketStatus(market);
   };
 
   const sell = (targets: number, market: Market, user: User) => {
@@ -117,13 +116,30 @@ describe("bancor-testing", () => {
     console.log("SELLING");
     console.log("targets sold:", targets);
     let reserveChange = reserveValueOnSell(targets, market);
+    let supportChange = supportValue(targets, market);
     console.log("reserve value on sell: ", reserveChange);
     market.reserveBalance -= reserveChange;
     market.targetTokenSupply -= targets;
-    user.reserveTokenBalance += reserveChange;
+    market.supportBalance -= supportChange;
+    user.reserveTokenBalance += reserveChange + supportChange;
     user.targetTokenBalance -= targets;
-    console.log("price per token: ", reserveChange / targets, "reserve");
+    console.log(
+      "price per token: ",
+      (reserveChange + supportChange) / targets,
+      "reserve"
+    );
     printMarketStatus(market);
+  };
+
+  //10000 * TARGET_DECIMAL_MODIFIER; //modifier is fine it's the manipulated treasury that's fucked
+  //reserveValue = collateral * (1 - (1 - targets / targetSupply)^ (1/reserveRatio)))
+  const reserveValueOnSell = (targets: number, market: Market) => {
+    let curveSupply = market.targetTokenSupply - market.preMine;
+    let base = 1 - targets / curveSupply;
+    let ex = 1 - Math.pow(base, 1 / market.reserveRatio);
+    let whole = market.reserveBalance * ex;
+    console.log("whole", whole);
+    return whole;
   };
 
   const fillReserve = (market: Market, amount: number) => {
@@ -150,54 +166,34 @@ describe("bancor-testing", () => {
     console.log(status);
   };
 
-  //200 / (20 * 0.5) = 20
-  //100 / (10 * 0.5) = 20
   //treasury / (supply * reserveRatio) = price
   const marginalPrice = (market: Market) => {
     return (
       market.reserveBalance /
-      ((market.targetTokenSupply - market.preMine) * market.reserveRatio)
+        ((market.targetTokenSupply - market.preMine) * market.reserveRatio) +
+      market.initialPrice
     );
   };
+});
 
-  //10000 * TARGET_DECIMAL_MODIFIER; //modifier is fine it's the manipulated treasury that's fucked
-  //reserveValue = collateral * (1 - (1 - targets / targetSupply)^ (1/reserveRatio)))
-  const reserveValueOnSell = (targets: number, market: Market) => {
-    let curveSupply = market.targetTokenSupply - market.preMine;
-    let base = 1 - targets / curveSupply;
-    let ex = 1 - Math.pow(base, 1 / market.reserveRatio);
-    let whole = market.reserveBalance * ex;
-    return whole;
+/*
+//pro-rata redemption doesn't move the price at all
+  const redeem = (targets: number, market: Market, user: User) => {
+    let prorata = targets / market.targetTokenSupply;
+    console.log("");
+    console.log("REDEEMING");
+    console.log("targets redeemed:", targets);
+    console.log("pro rata", prorata);
+    let claim = prorata * market.reserveBalance;
+    console.log("claim", claim);
+    market.reserveBalance -= claim;
+    market.targetTokenSupply -= targets;
+    user.reserveTokenBalance += claim;
+    user.targetTokenBalance -= targets;
+    console.log("value per token: ", claim / targets, "reserve");
+    printMarketStatus(market);
   };
-
-  /*
-
-)
-  
-  "receive x target tokens and pay y reserve" -- this is same as sell amount from billy (billy is from curve POV)
-  reserveValueOnBuy = collateral * ((1 + tokensSold / totalSupply)^(1/ReserveRatio) — 1)
-  
-
-  "give back x tokens and receive y reserves" -- this is same as saleReturn from yos
-  reserveValueOnSell = collateral * (1 - (1 - tokensSold / tokenSupply) ^ (1 / ReserveRatio))
-
-
-  i think the problem is billy is doing it from the perspective of the curve only
-  and the other guy is flip flopping
-
-  */
-
-  //buyAmt = tokenSupply * ((1 + amtPaid / collateral)^CW — 1)
-  //SaleReturn = ReserveTokenBalance * (1 - (1 - ContinuousTokensReceived / ContinuousTokenSupply) ^ (1 / (ReserveRatio)))
-  //derived from each
-  //PurchaseReturn = ContinuousTokenSupply * ((1 + ReserveTokensReceived / ReserveTokenBalance) ^ (ReserveRatio) - 1)
-
-  //    PurchaseReturn = ContinuousTokenSupply * ((1 + ReserveTokensReceived / ReserveTokenBalance) ^ (ReserveRatio) - 1)
-  // buyAmt = tokenSupply * ((1 + amtPaid / collateral)^CW — 1)
-  //target tokens returned
-  //this would go for a buy
-  //targetsReturned = targetSupply * ((1 + baseSpent / treasuryBalance)^RR - 1)
-  const getTargetsReceieved = (reservePaid: number, market: Market) => {
+ const getTargetsReceieved = (reservePaid: number, market: Market) => {
     let base = 1 + reservePaid / market.reserveBalance;
     // console.log("base");
     // console.log(base);
@@ -209,9 +205,6 @@ describe("bancor-testing", () => {
     console.log("targets received: ", whole);
     return whole;
   };
-});
-
-/*
 
   bancor-testing
 MARKET STATUS ------
@@ -327,6 +320,34 @@ MARKET STATUS ------
   marginalPrice: 0.20000000000000004
 }
 */
+
+/*
+
+)
+  
+  "receive x target tokens and pay y reserve" -- this is same as sell amount from billy (billy is from curve POV)
+  reserveValueOnBuy = collateral * ((1 + tokensSold / totalSupply)^(1/ReserveRatio) — 1)
+  
+
+  "give back x tokens and receive y reserves" -- this is same as saleReturn from yos
+  reserveValueOnSell = collateral * (1 - (1 - tokensSold / tokenSupply) ^ (1 / ReserveRatio))
+
+
+  i think the problem is billy is doing it from the perspective of the curve only
+  and the other guy is flip flopping
+
+  */
+
+//buyAmt = tokenSupply * ((1 + amtPaid / collateral)^CW — 1)
+//SaleReturn = ReserveTokenBalance * (1 - (1 - ContinuousTokensReceived / ContinuousTokenSupply) ^ (1 / (ReserveRatio)))
+//derived from each
+//PurchaseReturn = ContinuousTokenSupply * ((1 + ReserveTokensReceived / ReserveTokenBalance) ^ (ReserveRatio) - 1)
+
+//    PurchaseReturn = ContinuousTokenSupply * ((1 + ReserveTokensReceived / ReserveTokenBalance) ^ (ReserveRatio) - 1)
+// buyAmt = tokenSupply * ((1 + amtPaid / collateral)^CW — 1)
+//target tokens returned
+//this would go for a buy
+//targetsReturned = targetSupply * ((1 + baseSpent / treasuryBalance)^RR - 1)
 
 /*
 
