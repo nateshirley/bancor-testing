@@ -17,12 +17,28 @@ describe("bancor-testing", () => {
   //   console.log("Your transaction signature", tx);
   // });
 
+  const fullyDilutedValue = (market: Market) => {
+    //max price that the curve will hit?
+    /*
+    so what i want is, 
+    u want to know what's the base market cap that the curve will support
+    what market cap will the curve max out on
+    and that is 
+    */
+    //assuming linear curve
+    let curveSupply = market.maxSupply - market.preMine;
+    let maxPrice = curveSupply + market.initialPrice;
+    return market.maxSupply * maxPrice;
+    //quoted in base tokens
+  };
+
   interface Market {
     targetTokenSupply: number;
     reserveBalance: number;
     reserveRatio: number;
     preMine: number;
     initialPrice: number;
+    maxSupply: number;
   }
   //other way to store this without funding two different balances would be to derive
   let market: Market = {
@@ -31,6 +47,7 @@ describe("bancor-testing", () => {
     reserveRatio: 0.5,
     preMine: 0,
     initialPrice: 10,
+    maxSupply: 100,
   };
   interface User {
     reserveTokenBalance: number;
@@ -49,7 +66,15 @@ describe("bancor-testing", () => {
     if u float the market with an initial price, u no longer move the price as % of reserve, because 
     */
 
+    //100
     buy(99, market, user);
+    console.log(fullyDilutedValue(market));
+    //buy(0.0001, market, user);
+
+    /*
+
+    */
+
     // fillReserve(market, 600); //9.231
     // printMarketStatus(market);
     //;
@@ -57,9 +82,9 @@ describe("bancor-testing", () => {
     it becomes y = mx^n + (initial price * x)
     */
 
-    buy(100, market, user);
-    buy(100, market, user);
-    buy(100, market, user);
+    // buy(100, market, user);
+    // buy(100, market, user);
+    // buy(100, market, user);
     // fillReserve(market, 8400); //9.767441860465116
     // printMarketStatus(market);
 
@@ -68,7 +93,6 @@ describe("bancor-testing", () => {
     // sell(100, market, user);
     // sell(100, market, user);
 
-    //buy(0.0001, market, user);
     //its bc i have decimals with num so buying 1 is really like buying 1000
   });
 
@@ -166,8 +190,11 @@ u can just build it with starting price
 
   //treasury / (supply * reserveRatio) = price
   const marginalPrice = (market: Market) => {
+    let curveSupply = market.targetTokenSupply - market.preMine;
+    let supportBalance = market.initialPrice * curveSupply;
+    let curveBalance = market.reserveBalance - supportBalance;
     return (
-      market.reserveBalance /
+      curveBalance /
         ((market.targetTokenSupply - market.preMine) * market.reserveRatio) +
       market.initialPrice
     );
