@@ -5,6 +5,46 @@ import { BancorTesting } from "../target/types/bancor_testing";
 export const TARGET_DECIMALS = 6;
 export const TARGET_DECIMAL_MODIFIER = 10 ** TARGET_DECIMALS;
 
+/*
+
+need to stamp out some thoughts on the lock / vesting
+
+optimally
+- whatever portion u premine, u can't unlock more than that % of max supply
+
+so if u have max supply 10m and 1m premine
+then u get 
+
+
+
+*/
+
+//reserve mint
+//target mint
+//reserve balance
+//reserve ratio
+//token
+//preMine
+//initialSupply
+//maxSupply
+
+//locked treasury with all the $$
+interface Market {
+  targetTokenSupply: number;
+  reserveBalance: number;
+  reserveRatio: number;
+  preMine: number;
+  initialPrice: number;
+  maxSupply: number;
+}
+interface User {
+  reserveTokenBalance: number;
+  targetTokenBalance: number;
+}
+interface Creator {
+  amountUnlocked: number;
+}
+
 describe("bancor-testing", () => {
   // Configure the client to use the local cluster.
   // anchor.setProvider(anchor.Provider.env());
@@ -24,7 +64,15 @@ describe("bancor-testing", () => {
     u want to know what's the base market cap that the curve will support
     what market cap will the curve max out on
     and that is 
+
+    and the other thing i need is staking / unstaking
+
+    /*
+    250k base
+    2% over 4 years @ 150m val = est 750k/year 
+    100k sign 
     */
+
     //assuming linear curve
     let curveSupply = market.maxSupply - market.preMine;
     let maxPrice = curveSupply + market.initialPrice;
@@ -32,27 +80,36 @@ describe("bancor-testing", () => {
     //quoted in base tokens
   };
 
-  interface Market {
-    targetTokenSupply: number;
-    reserveBalance: number;
-    reserveRatio: number;
-    preMine: number;
-    initialPrice: number;
-    maxSupply: number;
-  }
-  //other way to store this without funding two different balances would be to derive
+  /*
+  you can unlock at a schedule that maintains your pro-rata share of outstanding tokens, assuming you sell?
+
+  */
+  // unlocking the preminedd
+  const unlock = (market: Market, creator: Creator, amount: number): void => {
+    //premin
+    let preMinePercentage = market.preMine / market.maxSupply;
+    let maxEligibleRightNow = preMinePercentage * market.targetTokenSupply;
+    if (
+      creator.amountUnlocked + amount <= maxEligibleRightNow &&
+      creator.amountUnlocked + amount <= market.preMine
+    ) {
+      //transfer to the wallet
+      //update amount unlocked
+      creator.amountUnlocked += amount;
+    }
+  };
+
+  //1 token, .5 in reserve
+  //10 token 5 reserve
   let market: Market = {
-    targetTokenSupply: 1, //100m assuming max supply is 1b
-    reserveBalance: 10.5, //0.0005, // * TARGET_DECIMAL_MODIFIER,
+    targetTokenSupply: 10, //100m assuming max supply is 1b
+    reserveBalance: 5, //0.0005, // * TARGET_DECIMAL_MODIFIER,
     reserveRatio: 0.5,
     preMine: 0,
-    initialPrice: 10,
+    initialPrice: 0,
     maxSupply: 100,
   };
-  interface User {
-    reserveTokenBalance: number;
-    targetTokenBalance: number;
-  }
+
   let user: User = {
     reserveTokenBalance: 20000 * TARGET_DECIMAL_MODIFIER,
     targetTokenBalance: 0,
@@ -68,7 +125,7 @@ describe("bancor-testing", () => {
 
     //100
     buy(99, market, user);
-    console.log(fullyDilutedValue(market));
+    //console.log(fullyDilutedValue(market));
     //buy(0.0001, market, user);
 
     /*
@@ -100,6 +157,10 @@ describe("bancor-testing", () => {
 open questions
 how do u start at a particular price? i think u could just add it manually
 u can just build it with starting price
+
+targetMint / targetToken = the token that you're using the bonding curve to buy and sell aka the creator token
+reserveToken / reserve = the token that you're using to pay, reserve == treasury
+
   */
 
   const buy = (targets: number, market: Market, user: User) => {
@@ -116,6 +177,7 @@ u can just build it with starting price
     printMarketStatus(market);
   };
 
+  //price support for initial price
   const supportValue = (targets: number, market: Market) => {
     return targets * market.initialPrice;
   };
@@ -124,15 +186,17 @@ u can just build it with starting price
     let curveSupply = market.targetTokenSupply - market.preMine;
     console.log("curve supp", curveSupply);
     let supportBalance = market.initialPrice * curveSupply;
-    console.log("support balance", supportBalance);
+    //console.log("support balance", supportBalance);
     let curveBalance = market.reserveBalance - supportBalance;
+    console.log("curve balance:", curveBalance);
     let base = 1 + targets / curveSupply;
+    console.log("base", base);
     let ex = Math.pow(base, 1 / market.reserveRatio) - 1;
+    console.log("ex:", ex);
     let whole = curveBalance * ex;
     console.log("whole", whole);
     return whole + supportValue(targets, market);
   };
-
   const sell = (targets: number, market: Market, user: User) => {
     if (market.targetTokenSupply - targets < market.preMine) {
       //selling into the premine portion
@@ -150,7 +214,6 @@ u can just build it with starting price
     console.log("price per token: ", reserveChange / targets, "reserve");
     printMarketStatus(market);
   };
-
   //10000 * TARGET_DECIMAL_MODIFIER; //modifier is fine it's the manipulated treasury that's fucked
   //reserveValue = collateral * (1 - (1 - targets / targetSupply)^ (1/reserveRatio)))
   const reserveValueOnSell = (targets: number, market: Market) => {
@@ -163,7 +226,7 @@ u can just build it with starting price
     console.log("whole", whole);
     return whole + supportValue(targets, market);
   };
-
+  //reflecting changes to the reserve
   const fillReserve = (market: Market, amount: number) => {
     console.log("");
     console.log("FILLING RESERVE");
@@ -187,7 +250,6 @@ u can just build it with starting price
     };
     console.log(status);
   };
-
   //treasury / (supply * reserveRatio) = price
   const marginalPrice = (market: Market) => {
     let curveSupply = market.targetTokenSupply - market.preMine;
